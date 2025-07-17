@@ -1,0 +1,152 @@
+# ====================================================================
+# Proyecto Final: Deposición multicapa sobre sustrato de Zafiro (Al2O3)
+# VERSIÓN MEJORADA - ESTABLE Y EFICIENTE
+# ====================================================================
+
+# ----------------- INICIALIZACIÓN Y VARIABLES -----------------------
+clear
+units           metal
+dimension       3
+boundary        p p p
+atom_style      charge
+neighbor        2.0 bin
+neigh_modify    every 1 delay 5
+
+variable a equal 4.760
+variable c equal 12.992
+
+# ----------------- ESTRUCTURA ATÓMICA Y CREACIÓN DE LA CAJA ---------
+lattice custom ${a} &
+        a1 1.0 0.0 0.0 &
+        a2 -0.5 0.8660254 0.0 &
+        a3 0.0 0.0 ${c} &
+        basis 0.3551 0.0000 0.2500 &
+        basis 0.6449 0.0000 0.7500 &
+        basis 0.0000 0.3551 0.2500 &
+        basis 0.0000 0.6449 0.7500 &
+        basis 0.3551 0.3551 0.2500 &
+        basis 0.6449 0.6449 0.7500 &
+        basis 0.1449 0.0000 0.5833 &
+        basis 0.8551 0.0000 0.9167 &
+        basis 0.0000 0.1449 0.5833 &
+        basis 0.0000 0.8551 0.9167 &
+        basis 0.1449 0.1449 0.5833 &
+        basis 0.8551 0.8551 0.9167 &
+        basis 0.3061 0.0000 0.0343 &
+        basis 0.6939 0.0000 0.4657 &
+        basis 0.0000 0.3061 0.0343 &
+        basis 0.0000 0.6939 0.4657 &
+        basis 0.3061 0.3061 0.0343 &
+        basis 0.6939 0.6939 0.4657 &
+        basis 0.9572 0.6511 0.1990 &
+        basis 0.3489 0.0428 0.3010 &
+        basis 0.6511 0.9572 0.1990 &
+        basis 0.0428 0.3489 0.3010 &
+        basis 0.9572 0.3061 0.1990 &
+        basis 0.6939 0.0428 0.3010 &
+        basis 0.0428 0.9572 0.6990 &
+        basis 0.3489 0.6939 0.8010 &
+        basis 0.6939 0.3489 0.6990 &
+        basis 0.9572 0.6511 0.8010 &
+        basis 0.3061 0.9572 0.6990 &
+        basis 0.0428 0.6939 0.8010
+
+region          sim_box block 0 8 0 8 0 10 units lattice
+create_box      3 sim_box
+
+mass            1 26.9815   # Al
+mass            2 15.9994   # O
+mass            3 28.0855   # Si
+
+# ----------------- CREACIÓN DE ÁTOMOS Y ASIGNACIÓN DE CARGAS --------
+region          sustrato_reg block 0 8 0 8 0 4 units lattice
+create_atoms    1 region sustrato_reg &
+                basis 1 1 basis 2 1 basis 3 1 basis 4 1 basis 5 1 basis 6 1 &
+                basis 7 1 basis 8 1 basis 9 1 basis 10 1 basis 11 1 basis 12 1 &
+                basis 13 2 basis 14 2 basis 15 2 basis 16 2 basis 17 2 basis 18 2 &
+                basis 19 2 basis 20 2 basis 21 2 basis 22 2 basis 23 2 basis 24 2 &
+                basis 25 2 basis 26 2 basis 27 2 basis 28 2 basis 29 2 basis 30 2
+
+set             type 1 charge 3.0
+set             type 2 charge -2.0
+set             type 3 charge 0.0
+
+# ----------------- EQUILIBRACIÓN MEJORADA --------------------------
+group           sustrato type 1 2
+timestep        0.001
+thermo          50
+thermo_style    custom step pe temp press
+
+# 1. Relajación inicial con potencial suave
+print "--- PHASE 1: Soft potential relaxation ---"
+pair_style      soft 2.5
+pair_coeff      * * 1.0
+fix             soft_relax all nve
+run             500
+unfix           soft_relax
+
+# 2. Configuración de potenciales reales (CORRECCIÓN APLICADA)
+print "--- PHASE 2: Real potentials activation ---"
+pair_style      hybrid/overlay buck/coul/long 12.0 tersoff lj/cut 10.0
+pair_coeff      1 1 buck/coul/long 1278.0 0.320 0.0      # Al-Al (Beamish et al.)
+pair_coeff      1 2 buck/coul/long 1460.592 0.299 14.59   # Al-O
+pair_coeff      2 2 buck/coul/long 9547.96 0.219 32.25    # O-O
+pair_coeff      3 3 tersoff Si.tersoff Si                 # Si-Si (SINTAXIS CORREGIDA)
+pair_coeff      1 3 lj/cut 0.5 2.5                       # Al-Si
+pair_coeff      2 3 lj/cut 0.01 3.0                      # O-Si (débil)
+kspace_style    pppm 1.0e-5
+
+# 3. Minimización robusta
+print "--- PHASE 3: Energy minimization ---"
+reset_timestep  0
+min_style       cg
+min_modify      line quadratic
+minimize        1.0e-8 1.0e-10 100000 1000000
+
+# 4. Equilibración térmica
+print "--- PHASE 4: Thermal equilibration ---"
+fix             nve_sustrato sustrato nve
+fix             langevin_sustrato sustrato langevin 300.0 300.0 0.1 12345
+run             5000
+unfix           langevin_sustrato
+unfix           nve_sustrato
+
+# Congelar capa inferior del sustrato (primeras 2 capas)
+region          capa_fija block INF INF INF INF 0 20 units box
+group           fijo_sustrato region capa_fija
+fix             freeze fijo_sustrato setforce 0.0 0.0 0.0
+
+# ----------------- DEPOSICIÓN OPTIMIZADA ----------------------------
+# Configuración común para deposición
+variable        z_dep_start equal zhi-15
+variable        z_dep_end equal zhi
+region          dep_region block INF INF INF INF ${z_dep_start} ${z_dep_end} units box
+thermo          500
+dump            traj all atom 1000 dump.al_si_al2o3.lammpstrj
+
+# 1. Deposición de Silicio
+print "--- PHASE 5: Silicon deposition (500 atoms) ---"
+fix             dep_Si all deposit 500 3 50 12345 region dep_region vz -0.5 -0.5
+fix             damp all viscous 1000
+run             5000
+unfix           dep_Si
+unfix           damp
+
+# Relajación post-deposición
+min_style       cg
+minimize        1.0e-6 1.0e-8 5000 50000
+
+# 2. Deposición de Aluminio
+print "--- PHASE 6: Aluminum deposition (300 atoms) ---"
+fix             dep_Al all deposit 300 1 30 54321 region dep_region vz -0.5 -0.5
+fix             damp all viscous 1000
+run             5000
+unfix           dep_Al
+unfix           damp
+
+# ----------------- SALIDA FINAL -------------------------------------
+write_dump      all atom dump.final.lammpstrj
+write_data      data.final.data
+print "Simulation completed successfully!"
+
+
