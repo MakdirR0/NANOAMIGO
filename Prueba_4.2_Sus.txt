@@ -1,0 +1,106 @@
+# ==========================================================================
+# SCRIPT AVANZADO: CREACIÓN DE SUSTRATO DE ZAFIRO (α-Al2O3, R-3c)
+# Nuevas orientaciones 
+# ==========================================================================
+
+# ----------------------- INICIALIZACIÓN -------------------------------------
+clear
+units         metal
+dimension     3
+boundary      p p p
+atom_style    charge
+
+
+# ----------------------- PARÁMETROS GEOMÉTRICOS ----------------------------
+
+variable a equal 4.760
+variable c equal 12.992
+lattice custom ${a} &
+        a1 -0.748203 0.663470 0 &
+        a2 -0.109074 -0.123004 0.986394 &
+        a3 0.654443 0.738023 0.164399 &
+        basis 0.3551 0.0000 0.2500 &
+        basis 0.6449 0.0000 0.7500 &
+        basis 0.0000 0.3551 0.2500 &
+        basis 0.0000 0.6449 0.7500 &
+        basis 0.3551 0.3551 0.2500 &
+        basis 0.6449 0.6449 0.7500 &
+        basis 0.1449 0.0000 0.5833 &
+        basis 0.8551 0.0000 0.9167 &
+        basis 0.0000 0.1449 0.5833 &
+        basis 0.0000 0.8551 0.9167 &
+        basis 0.1449 0.1449 0.5833 &
+        basis 0.8551 0.8551 0.9167 &
+        basis 0.3061 0.0000 0.0343 &
+        basis 0.6939 0.0000 0.4657 &
+        basis 0.0000 0.3061 0.0343 &
+        basis 0.0000 0.6939 0.4657 &
+        basis 0.3061 0.3061 0.0343 &
+        basis 0.6939 0.6939 0.4657 &
+        basis 0.9572 0.6511 0.1990 &
+        basis 0.3489 0.0428 0.3010 &
+        basis 0.6511 0.9572 0.1990 &
+        basis 0.0428 0.3489 0.3010 &
+        basis 0.9572 0.3061 0.1990 &
+        basis 0.6939 0.0428 0.3010 &
+        basis 0.0428 0.9572 0.6990 &
+        basis 0.3489 0.6939 0.8010 &
+        basis 0.6939 0.3489 0.6990 &
+        basis 0.9572 0.6511 0.8010 &
+        basis 0.3061 0.9572 0.6990 &
+        basis 0.0428 0.6939 0.8010
+
+region        simulation_box block 0 20 0 20 0 20
+create_box    2 simulation_box
+
+region        sim_box block 0 20 0 20 0 10
+create_atoms 1 region sim_box &
+             basis 1 1 basis 2 1 basis 3 1 basis 4 1 &
+             basis 5 1 basis 6 1 basis 7 1 basis 8 1 &
+             basis 9 1 basis 10 1 basis 11 1 basis 12 1 &
+             basis 13 2 basis 14 2 basis 15 2 basis 16 2 basis 17 2 basis 18 2 &
+             basis 19 2 basis 20 2 basis 21 2 basis 22 2 basis 23 2 basis 24 2 &
+             basis 25 2 basis 26 2 basis 27 2 basis 28 2 basis 29 2 basis 30 2
+
+# Asignamos cargas iónicas (Al³⁺ y O²⁻)
+set type 1 charge +1.8
+set type 2 charge -1.2
+
+# ----------------------- POTENCIAL INTERATÓMICO ----------------------------
+pair_style      hybrid/overlay  buck/coul/long 12.0
+pair_coeff      1 1  buck/coul/long 1278.0 0.320 0.0
+pair_coeff      1 2  buck/coul/long 1460.592 0.299 14.59
+pair_coeff      2 2  buck/coul/long 9547.96 0.219 32.25
+
+kspace_style    pppm 1.0e-5
+
+mass 1 26.9815
+mass 2 15.999
+
+group           Al type 1
+group           O  type 2
+# ------------------------- RELAJACIÓN Y SALIDA ----------------------------
+thermo          100
+thermo_style    custom step temp pe press pxx pyy pzz lx ly lz vol
+
+minimize        1.0e-8 1.0e-10 2000 20000
+
+# Obtenemos las dimensiones finales de la caja para el informe.
+variable final_Lx equal lx
+variable final_Ly equal ly
+variable final_Lz equal lz
+
+write_data      sustrato_zafiro_relajado.data
+
+dump            1 all custom 1 dump.zafiro_final.lammpstrj id type q x y z
+run             0
+undump          1
+
+print "=============================================================="
+print "Creación y relajación del sustrato de Zafiro completada"
+print "Dimensiones finales de la caja:"
+print "   Lx = ${final_Lx} Å"
+print "   Ly = ${final_Ly} Å"
+print "   Lz = ${final_Lz} Å"
+print "Archivo de salida: 'sustrato_zafiro_relajado.data'"
+print "=============================================================="
