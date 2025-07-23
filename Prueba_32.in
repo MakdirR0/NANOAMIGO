@@ -1,0 +1,182 @@
+# ====================================================================
+# Proyecto Final: Deposición multicapa sobre sustrato de Zafiro (Al2O3)
+#
+# VERSIÓN FINAL - SIMPLIFICADA Y ROBUSTA
+# ====================================================================
+
+# ----------------- INICIALIZACIÓN Y VARIABLES -----------------------
+clear
+units           metal
+dimension       3
+boundary        p p p
+atom_style      charge
+neighbor        2.0 bin
+neigh_modify    every 1 delay 5 check yes
+
+# ----------------- ESTRUCTURA ATÓMICA Y GEOMETRÍA -------------------
+variable a equal 4.760
+variable c equal 12.992
+lattice custom ${a} &
+        a1 1.0 0.0 0.0 &
+        a2 -0.5 0.8660254 0.0 &
+        a3 0.0 0.0 ${c} &
+        basis 0.3551 0.0000 0.2500 &
+        basis 0.6449 0.0000 0.7500 &
+        basis 0.0000 0.3551 0.2500 &
+        basis 0.0000 0.6449 0.7500 &
+        basis 0.3551 0.3551 0.2500 &
+        basis 0.6449 0.6449 0.7500 &
+        basis 0.1449 0.0000 0.5833 &
+        basis 0.8551 0.0000 0.9167 &
+        basis 0.0000 0.1449 0.5833 &
+        basis 0.0000 0.8551 0.9167 &
+        basis 0.1449 0.1449 0.5833 &
+        basis 0.8551 0.8551 0.9167 &
+        basis 0.3061 0.0000 0.0343 &
+        basis 0.6939 0.0000 0.4657 &
+        basis 0.0000 0.3061 0.0343 &
+        basis 0.0000 0.6939 0.4657 &
+        basis 0.3061 0.3061 0.0343 &
+        basis 0.6939 0.6939 0.4657 &
+        basis 0.9572 0.6511 0.1990 &
+        basis 0.3489 0.0428 0.3010 &
+        basis 0.6511 0.9572 0.1990 &
+        basis 0.0428 0.3489 0.3010 &
+        basis 0.9572 0.3061 0.1990 &
+        basis 0.6939 0.0428 0.3010 &
+        basis 0.0428 0.9572 0.6990 &
+        basis 0.3489 0.6939 0.8010 &
+        basis 0.6939 0.3489 0.6990 &
+        basis 0.9572 0.6511 0.8010 &
+        basis 0.3061 0.9572 0.6990 &
+        basis 0.0428 0.6939 0.8010
+
+region          sim_box block 0.0 57.12 0.0 32.98 0.0 200.0 units box
+
+# ----------------- CREACIÓN DEL SISTEMA -----------------------------
+create_box      3 sim_box
+mass            1 26.9815   # Al
+mass            2 15.9994   # O
+mass            3 28.0855   # Si
+
+region          sustrato_reg block 0.0 57.12 0.0 32.98 0.0 51.97 units box
+create_atoms    1 region sustrato_reg &
+                basis 1 1 basis 2 1 basis 3 1 basis 4 1 basis 5 1 basis 6 1 &
+                basis 7 1 basis 8 1 basis 9 1 basis 10 1 basis 11 1 basis 12 1 &
+                basis 13 2 basis 14 2 basis 15 2 basis 16 2 basis 17 2 basis 18 2 &
+                basis 19 2 basis 20 2 basis 21 2 basis 22 2 basis 23 2 basis 24 2 &
+                basis 25 2 basis 26 2 basis 27 2 basis 28 2 basis 29 2 basis 30 2
+
+region          capa_fija block INF INF INF INF 0 20 units box
+group           fijo_sustrato region capa_fija
+group           movil subtract all fijo_sustrato
+
+# ----------------- FÍSICA DEL SISTEMA: CARGAS -----------------------
+set             type 1 charge 1.8
+set             type 2 charge -1.2
+set             type 3 charge 0.0
+
+# ----------------- NEUTRALIZACIÓN DE CARGA ---------------------------
+pair_style      zero 2.5
+pair_coeff      * *
+variable        atom_charge atom q
+compute         total_q all reduce sum v_atom_charge
+run             0
+variable        q_total equal c_total_q
+variable        N_total equal count(all)
+variable        q_correction equal -${q_total}/${N_total}
+variable        new_charge atom q+${q_correction}
+set             group all charge v_new_charge
+print           "Carga total final (después de corrección) = $(c_total_q)"
+
+# ----------------- EQUILIBRACIÓN DEL SUSTRATO ------------------------
+timestep        0.001
+thermo          50
+thermo_style    custom step pe temp press
+
+# Se define el DUMP una sola vez para capturar TODO el proceso
+dump            traj all atom 1000 dump.proceso_completo.lammpstrj
+
+# 1. Relajación inicial con potencial suave
+print "--- PHASE 1: Soft potential relaxation ---"
+pair_style      soft 2.5
+pair_coeff      * * 1.0
+fix             soft_relax all nve
+run             500
+unfix           soft_relax
+
+# 2. Restaurar potenciales reales y minimizar
+print "--- PHASE 2 & 3: Real potentials activation and minimization ---"
+pair_style      hybrid/overlay buck/coul/long 12.0 tersoff lj/cut 10.0
+pair_coeff      1 1 buck/coul/long 1278.0 0.320 0.0
+pair_coeff      1 2 buck/coul/long 1460.592 0.299 14.59
+pair_coeff      2 2 buck/coul/long 9547.96 0.219 32.25
+pair_coeff      1 3 lj/cut 0.5 2.5
+pair_coeff      2 3 lj/cut 0.01 3.0
+pair_coeff      * * tersoff Si.tersoff NULL NULL Si
+kspace_style    pppm 1.0e-5
+
+# SIMPLIFICACIÓN: Se elimina el ciclo undump/reset/dump
+min_style       cg
+minimize        1.0e-8 1.0e-10 10000 100000
+
+# 3. Equilibración térmica
+print "--- PHASE 4: Thermal equilibration ---"
+fix             langevin_movil movil langevin 300.0 300.0 0.1 12345
+fix             freeze fijo_sustrato setforce 0.0 0.0 0.0
+run             5000
+unfix           langevin_movil
+
+# ----------------- DEPOSICIÓN SECUENCIAL (ESTILO MBE) ----------------
+print "--- INICIANDO DEPOSICIÓN SECUENCIAL ---"
+thermo          500
+region          dep_region block INF INF INF INF 150.0 180.0 units box
+
+fix             integrate_dynamic movil nve
+fix             damp_dynamic movil viscous 1.0
+
+# --- Bucle de Deposición de Silicio ---
+print "--- PHASE 5: Silicon deposition (500 atoms) ---"
+variable        n_si equal 500
+variable        tipo_si equal 3
+variable        freq_si equal 50
+label           loop_si
+variable        i loop ${n_si}
+  create_atoms  ${tipo_si} random 1 12345 dep_region
+  run           ${freq_si}
+next            i
+jump            SELF loop_si
+variable        i delete
+
+# Relajación post-Si
+print "--- Relaxing after Silicon deposition ---"
+min_style       cg
+minimize        1.0e-6 1.0e-8 5000 50000
+
+# --- Bucle de Deposición de Aluminio ---
+print "--- PHASE 6: Aluminum deposition (300 atoms) ---"
+variable        n_al equal 300
+variable        tipo_al equal 1
+variable        freq_al equal 30
+label           loop_al
+variable        j loop ${n_al}
+  create_atoms  ${tipo_al} random 1 54321 ${dep_region}
+  run           ${freq_al}
+next            j
+jump            SELF loop_al
+variable        j delete
+
+# Apagar fixes de dinámica
+unfix           damp_dynamic
+unfix           integrate_dynamic
+
+# Relajación final
+print "--- Final relaxation ---"
+unfix           freeze
+min_style       cg
+minimize        1.0e-6 1.0e-8 5000 50000
+
+# ----------------- SALIDA FINAL -------------------------------------
+write_data      data.final.data
+print "Simulation completed successfully!"
+
