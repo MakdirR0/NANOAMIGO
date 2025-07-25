@@ -1,0 +1,78 @@
+# Prueba Sustrato de Silicio 
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Inicialización ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+units           metal
+boundary        p p f
+dimension       3
+atom_style      atomic
+variable        a equal 5.431
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~ Definición de la estructura atómica del sustrato ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+lattice         diamond ${a}
+region          simulation_box block 0 20 0 20 0 200  # Buffer añadido en Z
+create_box      3 simulation_box
+lattice         diamond ${a} orient x 1 1 -2 orient y -1 1 0 orient z 1 1 1
+region          sustrato block 0 20 0 20 0 10
+create_atoms    1 region sustrato
+mass            1 28.0855
+
+# Divide el sustrato en dos regiones: inmóvil y móvil
+region           sustrato_inmovil block 0 20 0 20 0 5
+region           sustrato_movil block 0 20 0 20 5 10
+
+group            inmovil region sustrato_inmovil
+group            mobil region sustrato_movil
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~ Definición del potencial interatómico ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pair_style      tersoff
+pair_coeff      * * SiO.tersoff Si Si O
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~ Estabilización del sistema ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+fix freeze inmovil setforce 0.0 0.0 0.0  # Congela la mitad inferior
+# La mitad superior (mobil) queda libre
+
+fix z_wall all wall/reflect zlo EDGE zhi EDGE  # Paredes reflectoras
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~ Parámetros para el depósito ALD de SiO2 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+variable         z0 equal 10           # Altura inicial sobre el sustrato
+variable         z1 equal 30           # Altura final (20 unidades de espesor)
+region           ald_sio2 block 0 20 0 20 ${z0} ${z1}
+
+# Definir tipos de átomo para SiO2
+mass             2 28.0855             # Si en SiO2
+mass             3 15.999              # O en SiO2
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~ Ciclo ALD: Deposición de Si y O alternados ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Aquí se hace un ciclo simple: primero Si, luego O, repitiendo hasta llenar la región
+
+variable         ncycles equal 10
+variable         dz equal (v_z1-v_z0)/v_ncycles
+
+label            loop_ald
+variable         i loop ${ncycles}
+
+variable         zlo equal v_z0+v_dz*(${i}-1)
+variable         zhi equal v_z0+v_dz*${i}
+variable         zmid equal (v_zlo+v_zhi)/2.0
+
+region           ald_si block 0 20 0 20 ${zlo} ${zmid}
+create_atoms     2 region ald_si
+
+region           ald_o block 0 20 0 20 ${zmid} ${zhi}
+create_atoms     3 region ald_o
+
+minimize         1e-4 1e-6 100 1000
+
+print "Deposito ciclo ${i} completado"
+write_dump all atom dump.temp_${i}.atom
+
+next             i
+jump             SELF loop_ald
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~ Fin del depósito ALD ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+write_dump       all atom dump.sustrato_sio2_ald.atom
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~ Configuración de salida ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+thermo          10 
+thermo_style    custom step pe lx ly lz press pxx pyy pzz
+write_dump      all atom dump.sustrato_si.atom
